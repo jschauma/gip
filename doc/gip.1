@@ -1,0 +1,157 @@
+.\" Originally written by Jan Schaumann
+.\" <jschauma@netmeister.org> in April 2020.
+.Dd April 29, 2020
+.Dt gip 1
+.Os
+.Sh NAME
+.Nm gip
+.Nd get an IP in a geographical location or country
+.Sh SYNOPSIS
+.Nm
+.Op Fl 46UVchuv
+.Op Fl d Ar dir
+.Ar country
+.Sh DESCRIPTION
+The
+.Nm
+tool lets you grab an IP address or CIDR subnet that
+belongs to the given geographical location as derived
+from external sources of truth.
+This is not particularly bulletproof, and obviously
+subject to change at any given time, but may come in
+handy when you're looking to pick an IP in a given
+country.
+.Sh OPTIONS
+The following options are supported by
+.Nm :
+.Bl -tag -width _d_dir_
+.It Fl 4
+Only return IPv4 results.
+.It Fl 6
+Only return IPv6 results.
+.It Fl U
+Do not update local files.
+.It Fl V
+Print version number and exit.
+.It Fl c
+Return a CIDR subnet instead of an IP address.
+.It Fl d Ar dir
+Use the given directory to store CIDR data.
+If not specified, default to ~/.gip.
+.It Fl h
+Display help and exit.
+.It Fl u
+Update local files from their remote sources of truth.
+.It Fl v
+Be verbose.
+Can be specified multiple times.
+.El
+.Sh DETAILS
+.Nm
+takes as argument a
+.Ar country
+and will attempt to find an IP address from that
+geographical region.
+By default,
+.Nm
+will attempt to find both an IPv4 and an IPv6 address,
+but will only print one of the other if only that is
+available.
+.Pp
+The country can be specified as:
+.Bl -tag -width aws_region_
+.It aws-region
+An AWS region.
+For example, 'eu-west-1'.
+.Nm
+will also accept e.g. 'eu-west' and then pick one of
+the matching regions at random.
+.It CC
+An ISO-3166-1 Alpha-2 country code.
+For example, 'de' for Germany.
+For most countries, this will be their ccTLD;
+.Nm
+also accepts 'uk' for Great Britain, as well as 'eu'
+to let it pick a random country from the European
+Union, but
+.Nm
+will not accept IDN ccTLDs.
+.It country
+An English country name.
+For example, 'Germany'.
+For countries with a name consisting of multiple
+words, make sure to quote this argument.
+.El
+.Pp
+.Nm
+will attempt to determine an IP range for the given
+argument by retrieving sources of truth to map your
+input.
+These sources of truth include:
+.Bl -tag -width cidrs_
+.nf
+.It AWS
+The IP ranges published by AWS at:
+.nh
+https://ip-ranges.amazonaws.com/ip-ranges.json
+.It CIDRs
+Address blocks by CIDR from:
+.nh
+https://www.ipdeny.com/
+.El
+.fi
+.Pp
+.Nm
+will look for these input files in the directory
+~/.gip.
+If no files are found, or the files found are older
+than 7 days, or if the
+.Fl u
+flag is specified,
+.Nm
+will attempt to fetch these files.
+This can be disabled by specifying the
+.Fl U
+flag.
+.Sh EXAMPLES
+The following examples illustrate common usage of this tool.
+.Pp
+To get an IP address presumed to be in Germany:
+.Bd -literal -offset indent
+gip germany
+.Ed
+.Pp
+To get an IPv6 CIDR for the AWS region 'sa-east-1'
+without updating the local data files regardless of
+age:
+.Bd -literal -offset indent
+gip -U -6 -c sa-east-1
+.Ed
+.Pp
+To verbosely get an IPv4 address presumed to be in
+Czechia:
+.Bd -literal -offset indent
+gip -v -v -4 "Czech Republic"
+.Ed
+.Sh FILES
+.Nm
+keeps copies of the data it looked up in the directory
+~/.gip.  In there, it will store the files:
+.Bl -tag -width _version___cc_zone_
+.It ip-ranges.json
+The list of IP ranges published by AWS.
+.It <version>/<cc>.zone
+The per country code CIDRs.
+.El
+.Sh EXIT STATUS
+.Ex -std 
+.Sh SEE ALSO
+https://xkcd.com/195/
+.Sh HISTORY
+.Nm
+was originally written by
+.An Jan Schaumann
+.Aq jschauma@netmeister.org
+in April 2020.
+.Sh BUGS
+Please file bugs and feature requests by emailing the author.
