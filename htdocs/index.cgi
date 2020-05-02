@@ -124,7 +124,7 @@ EOD
 sub printFoot() {
 	print <<EOD
   <hr>
-  [Made by <a href="https://twitter.com/jschauma">\@jschauma</a>]&nbsp;|&nbsp;[<a href="/blog/">Other Signs of Triviality</a>]
+  [Made by <a href="https://twitter.com/jschauma">\@jschauma</a>]&nbsp;|&nbsp;[<a href="/blog/">Other Signs of Triviality</a>]&nbsp;|&nbsp;[<a href="/">main page</a>]
   </BODY>
 </HTML>
 EOD

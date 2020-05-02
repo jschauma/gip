@@ -1,2 +1,6 @@
+Version 1.1 (2020-05-02)
+* add reserved CIDRs and RFCs as options
+* allow expansion of a given CIDR
+
 Version 1.0 (2020-04-29)
 * Hello World!

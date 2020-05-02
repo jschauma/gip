@@ -46,11 +46,114 @@ use constant EXIT_SUCCESS => 0;
 use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
 use constant CC_CIDR_URL => "https://www.ipdeny.com/";
 
-use constant VERSION => 1.2;
+use constant VERSION => 1.1;
 
 ###
 ### Globals
 ###
+
+my $RESERVED_CIDRS = {
+			# shortcuts and aliases first
+			"benchmarking" => {
+					"v4" => { "198.18.0.0/15" => 1 },
+					"v6" => { "2001:2::/48" => 1 },
+				},
+			"example" => {
+					"v4" => {
+							"192.0.2.0/24" => 1,
+							"198.51.100.0/24" => 1,
+							"203.0.113.0/24" => 1,
+					       	},
+					"v6" => { "2001:db8::/32" => 1 },
+				},
+			"link-local" => {
+					"v4" => { "169.254.0.0/16" => 1 },
+					"v6" => { "fe80::/10" => 1 },
+				},
+			"loopback" => {
+					"v4" => { "127.0.0.0/8" => 1 },
+					"v6" => { "::1/128" => 1 },
+				},
+			"multicast" => {
+					"v4" => { "224.0.0.0/4" => 1 },
+					"v6" => { "ff00::/8" => 1 },
+				},
+			"unique-local" => {
+					"v4" => {
+							"10.0.0.0/8" => 1,
+							"172.16.0.0/12" => 1,
+							"192.168.0.0/16" => 1
+						},
+					"v6" => { "fc00::/7" => 1 },
+				},
+			"unspecified" => {
+					"v4" => { "0.0.0.0/32" => 1 },
+					"v6" => { "::/128" => 1 },
+				},
+			# RFCs in order
+			"rfc1112" => {  # Reserved
+					"v4" => { "240.0.0.0/4" => 1 },
+				},
+			"rfc1122" => {  # This host on this network
+					"v4" => { "0.0.0.0/8" => 1 },
+				},
+			"rfc1918" => {  # Private Use
+					"v4" => {
+							"10.0.0.0/8" => 1,
+							"172.16.0.0/12" => 1,
+							"192.168.0.0/16" => 1,
+						},
+				},
+			"rfc2544" => {  # Benchmarking
+					"v4" => { "198.18.0.0/15" => 1 },
+				},
+			"rfc2928" => {  # IETF Protocol Assignments
+					"v6" => { "2001::/23" => 1 },
+				},
+			"rfc3056" => {  # 6to4
+					"v6" => { "2002::/16" => 1 },
+				},
+			"rfc3068" => {  # 6to4 Relay Anycast
+					"v4" => { "192.88.99.0/24" => 1 },
+				},
+			"rfc3849" => {  # Documentation
+					"v6" => { "2001:db8::/32" => 1 },
+				},
+			"rfc4193" => {  # Unique-Local
+					"v6" => { "fc00::/7" => 1 },
+				},
+			"rfc4380" => {  # TEREDO
+					"v6" => { "2001::/32" => 1 },
+				     },
+			"rfc4843" => {  # ORCHID
+					"v6" => { "2001:10::/28" => 1 },
+				     },
+			"rfc5180" => {  # Benchmarking
+					"v6" => { "2001:2::/48" => 1 },
+				     },
+			"rfc5737" => {  # Documentation
+					"v4" => {
+							"192.0.2.0/24" => 1,
+							"198.51.100.0/24" => 1,
+							"203.0.113.0/24" => 1,
+					       	},
+				},
+			"rfc6052" => {  # IPv4-IPv6 Translation
+					"v6" => { "64:ff9b::/96" => 1 },
+				     },
+			"rfc6333" => {  # DS-Lite
+					"v4" => { "192.0.0.0/29" => 1 },
+				},
+			"rfc6598" => {  # Shared Address Space
+					"v4" => { "100.64.0.0/10" => 1 },
+				},
+			"rfc6666" => {  # Discard-only
+					"v6" => { "100::/64" => 1 },
+				     },
+			"rfc6890" => {  # IETF Protocol Assignments
+					"v4" => { "192.0.0.0/24" => 1 },
+				     },
+		};
 
 # CIDRS = ( "v4" => ( "1.2.3.4/NM" => 1, ... ), "v6" => ( "1::2/NM" => 1 ) )
 my %CIDRS;
@@ -63,6 +166,21 @@ my $RETVAL = 0;
 ###
 ### Subroutines
 ###
+
+sub createNetmask($) {
+	my ($cidr) = @_;
+
+	my $block;
+	eval {
+		local $SIG{__WARN__} = sub {};
+		$block = Net::Netmask->new($cidr);
+	};
+	if (!$block || $block->{'ERROR'}) {
+		error("Invalid CIDR '$cidr': $!");
+	}
+
+	return $block;
+}
 
 
 sub error($;$) {
@@ -194,7 +312,7 @@ sub init() {
 	}
 
 	if (scalar(@ARGV) != 1) {
-		error("You didn't give me a country name.", EXIT_FAILURE);
+		error("You didn't give me anything to expand.", EXIT_FAILURE);
 		# NOTREACHED
 	}
 
@@ -269,17 +387,106 @@ sub parseCCCIDRs() {
 	}
 }
 
+sub parseGivenCIDR() {
+	my $cidr = $OPTS{'net'};
+
+	my $block = createNetmask($cidr);
+
+	if ($block->protocol() eq "IPv6") {
+	       	if ($OPTS{"v6"} eq "no") {
+			error("You gave me an IPv6 CIDR but asked for IPv4 results.", EXIT_FAILURE);
+			# NOTREACHED
+		}
+		$CIDRS{"v6"}{$cidr} = 1;
+	}
+
+	if ($block->protocol() eq "IPv4") {
+		if ($OPTS{"v4"} eq "no") {
+			error("You gave me an IPv4 CIDR but asked for IPv6 results.", EXIT_FAILURE);
+			# NOTREACHED
+		}
+		$CIDRS{"v4"}{$cidr} = 1;
+	}
+
+	if ($OPTS{'cidr'}) {
+		my $full = 128;
+		my $version = "v6";
+		# Expanding all possible subnets takes too long,
+		# so let's arbitrarily cut off at 2^14.
+		my $max = 14;
+		if ($block->protocol() eq "IPv4") {
+			$full = 32;
+			$version = "v4";
+		}
+
+		my $left = $full - $block->bits();
+		if ($left > $max) {
+			$left = $max;
+		}
+		my $n = 2 ** int(rand($left));
+		my @chopped = $block->split($n);
+
+		foreach my $c (@chopped) {
+			$CIDRS{$version}{$c} = 1;
+		}
+		return;
+	}
+}
+
+sub parseReservedCIDRs() {
+	my $reserved = $OPTS{'country'};
+
+	my @wanted = keys(%{$RESERVED_CIDRS});
+	if ($reserved ne "reserved") {
+		@wanted = ( $reserved );
+	}
+
+	foreach my $k (@wanted) {
+		my $wanted = $RESERVED_CIDRS->{$k};
+		foreach my $v ( "v4", "v6" ) {
+			my %h = %{$wanted};
+			if ($reserved ne "reserved" && !$h{$v} &&
+				# only warn when the missing version was explicitly requested
+				(($v eq "v4" && ($OPTS{"v6"} eq "no")) ||
+			 	($v eq "v6" && ($OPTS{"v4"} eq "no")))) {
+				error("No IP$v CIDRs found for $reserved.");
+				next;
+			}
+			if ($h{$v}) {
+				if (exists($CIDRS{$v})) {
+					foreach my $cidr (keys(%{$h{$v}})) {
+						$CIDRS{$v}{$cidr} = 1;
+					}
+				} else {
+					$CIDRS{$v} = $h{$v};
+				}
+			}
+		}
+	}
+}
+
 sub prepCountry() {
 	verbose("Checking given country input " . $OPTS{'country'} . "...");
 
 	my $c = lc($OPTS{'country'});
 	my $cc = "";
 
+	if ($c =~ m/^.*\/[0-9]+$/) {
+		verbose("Selecting from given CIDR '$c'...", 2);
+		$OPTS{'net'} = $c;
+		return;
+	}
+
+	if ($RESERVED_CIDRS->{$c} || ($c eq "reserved")) {
+		$OPTS{'country'} = $c;
+		$OPTS{'reserved'} = 1;
+		return;
+	}
+
 	if ($c =~ m/^[a-z]+-[a-z]+(-[0-9]+)?$/) {
 		verbose("Using AWS region '$c'...", 2);
 		$OPTS{'country'} = $c;
 		$OPTS{'aws'} = 1;
-		$cc = $c;
 		return;
 	}
 
@@ -396,23 +603,30 @@ sub selectIP($) {
 
 	# IPv6 blocks are too big to enumerate.
 	# If we get an IPv6 block, we grab one from the first /120.
-	if ($cidr =~ m/^(.*:.*)\/(.*)$/) {
+	# Likewise, for IPv4 we try to stay below a /16.
+	my $ipv6max = 120;
+	my $ipv4max = 16;
+
+	my $tooBig = 0;
+	my $max = $ipv6max;
+	if ($cidr =~ m/^(.*)\/(.*)$/) {
+		my $net = $1;
 		my $slash = $2;
-		if ($slash < 120) {
-			$cidr = "$1/120";
+		if (($net =~ m/:/) && ($slash < $ipv6max)) {
+			$tooBig = 1;
+		} elsif ($slash < $ipv4max) {
+			$tooBig = 1;
+			$max = $ipv4max;
+		}
+
+		if ($tooBig) {
+			verbose("A /$slash is too big to iterate, gonna use a /$max instead...", 3);
+			$cidr = "$net/$max";
 		}
 	}
 
 	verbose("Selecting an IP from the given $cidr...");
-	my $block;
-	eval {
-		local $SIG{__WARN__} = sub {};
-		$block = Net::Netmask->new($cidr);
-	};
-	if (!$block || $block->{'ERROR'}) {
-		error("Invalid CIDR '$cidr': $!");
-	}
-
+	my $block = createNetmask($cidr);
 	my @ips = $block->enumerate();
 	return $ips[rand(@ips)];
 }
@@ -458,7 +672,11 @@ sub verbose($;$) {
 init();
 prepCountry();
 
-if ($OPTS{'aws'}) {
+if ($OPTS{'reserved'}) {
+	parseReservedCIDRs();
+} elsif ($OPTS{'net'}) {
+	parseGivenCIDR();
+} elsif ($OPTS{'aws'}) {
 	getAWSIPRanges();
 	parseAWSData();
 } else {

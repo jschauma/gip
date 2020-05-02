@@ -1,26 +1,28 @@
 .\" Originally written by Jan Schaumann
 .\" <jschauma@netmeister.org> in April 2020.
-.Dd April 29, 2020
+.Dd May 02, 2020
 .Dt gip 1
 .Os
 .Sh NAME
 .Nm gip
-.Nd get an IP in a geographical location or country
+.Nd get an IP in a desired CIDR
 .Sh SYNOPSIS
 .Nm
 .Op Fl 46UVchuv
 .Op Fl d Ar dir
-.Ar country
+.Ar country|reserved|cidr
 .Sh DESCRIPTION
 The
 .Nm
 tool lets you grab an IP address or CIDR subnet that
-belongs to the given geographical location as derived
-from external sources of truth.
-This is not particularly bulletproof, and obviously
-subject to change at any given time, but may come in
-handy when you're looking to pick an IP in a given
-country.
+belongs to the given CIDR or a geographical location
+as derived from external sources of truth.
+.Pp
+The selection is made at random from the given input.
+This can be useful to test systems that behave
+differently based on e.g., the geographical location
+of the client address or to verify how it may handle
+certain reserved IP space.
 .Sh OPTIONS
 The following options are supported by
 .Nm :
@@ -49,16 +51,19 @@ Can be specified multiple times.
 .Sh DETAILS
 .Nm
 takes as argument a
-.Ar country
-and will attempt to find an IP address from that
-geographical region.
+.Ar country ,
+.Ar reservation description ,
+or a
+.Ar CIDR
+and will attempt to produce an IP address that matches
+those requirements.
 By default,
 .Nm
 will attempt to find both an IPv4 and an IPv6 address,
-but will only print one of the other if only that is
+but will only print one or the other if only that is
 available.
 .Pp
-The country can be specified as:
+A country can be specified as:
 .Bl -tag -width aws_region_
 .It aws-region
 An AWS region.
@@ -83,10 +88,47 @@ For countries with a name consisting of multiple
 words, make sure to quote this argument.
 .El
 .Pp
+A reservation description can be specified as
+.Bl -tag -width reserved_
+.It rfcXXXX
+.Nm
+will provide a result from the given RFC reserved IP
+space.
+For example, specifying "RFC1918" may yield an address
+in the 10.0.0.0/8 CIDR.
+.Pp
+The RFCs
+.Nm
+is aware of are: RFC1112, RFC1122, RFC1918, RFC2544,
+RFC2928, RFC3056, RFC3068, RFC3849, RFC4193, RFC4380,
+RFC4843, RFC5180, RFC5737, RFC6052, RFC6333, RFC6598,
+RFC6666, and RFC6890.
+.It symbolic
+.Nm
+accepts the following symbolic names for several
+of the RFC reserved CIDRs: benchmarking, example,
+link-local, loopback, multicast, unique-local,
+unspecified.
+.It reserved
+Specifying the literal string "reserved" causes
+.Nm
+to pick an address from any one of the CIDRs that are
+not suitable for public communications.
+.El
+.Pp
+Note: When selecting an IP address from a CIDR,
+.Nm
+will only expand small CIDRs.
+That is, if a given source CIDR ends up being larger
+than a /120 vor IPv6 or a /16 for IPv4, then
+.Nm
+will grab an IP address from the first /120 or /16
+within the given CIDR.
+.Sh GEOGRAPHICAL LOCATION
 .Nm
 will attempt to determine an IP range for the given
-argument by retrieving sources of truth to map your
-input.
+country argument by retrieving sources of truth to map
+your input.
 These sources of truth include:
 .Bl -tag -width cidrs_
 .nf
@@ -132,6 +174,22 @@ To verbosely get an IPv4 address presumed to be in
 Czechia:
 .Bd -literal -offset indent
 gip -v -v -4 "Czech Republic"
+.Ed
+.Pp
+To get an IP address suitable to be used in
+documentation:
+.Bd -literal -offset indent
+gip example
+.Ed
+.Pp
+To select a random IP from the 203.0.113.0/24 network:
+.Bd -literal -offset indent
+gip -4 203.0.113.0/24
+.Ed
+.Pp
+To select a random subnet of the given 2001:db8::/32:
+.Bd -literal -offset indent
+gip -c 2001:db8::/32
 .Ed
 .Sh FILES
 .Nm
