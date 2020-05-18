@@ -50,7 +50,7 @@ sub runGip() {
 		}
 	}
 
-	if ($name =~ m/^([a-z0-9 .-]+)$/i) {
+	if ($name =~ m/^([a-z0-9:\/ .-]+)$/i) {
 		$name = $1;
 	} else {
 		print $CGI->header(
@@ -182,6 +182,11 @@ we'll keep it simple.  Here are some examples:
 2600:1f01:4840::/47
 \$ curl "https://www.netmeister.org/gip/?location=Czech+Republic&ip=v4"
 5.183.13.0
+\$ curl "https://www.netmeister.org/gip/?location=RFC1918"
+172.16.235.59
+\$ curl "https://www.netmeister.org/gip/?location=link-local"
+169.254.223.92
+fe80::f9
 \$ </pre></tt></blockquote>
   </p>
 EOD

@@ -21,6 +21,7 @@ use Getopt::Long;
 use JSON;
 use Locale::Country qw(code2country country2code);
 use Net::Netmask;
+use Socket qw(AF_INET AF_INET6 inet_pton);
 use URI::Escape;
 
 Getopt::Long::Configure("bundling");
@@ -46,7 +47,7 @@ use constant EXIT_SUCCESS => 0;
 use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
 use constant CC_CIDR_URL => "https://www.ipdeny.com/";
 
-use constant VERSION => 1.1;
+use constant VERSION => 1.2;
 
 ###
 ### Globals
@@ -91,6 +92,9 @@ my $RESERVED_CIDRS = {
 					"v6" => { "::/128" => 1 },
 				},
 			# RFCs in order
+			"rfc919" => {  # Reserved
+					"v4" => { "255.255.255.255/32" => 1 },
+				},
 			"rfc1112" => {  # Reserved
 					"v4" => { "240.0.0.0/4" => 1 },
 				},
@@ -470,6 +474,13 @@ sub prepCountry() {
 
 	my $c = lc($OPTS{'country'});
 	my $cc = "";
+
+	# This isn't very useful, but ok.  What else did the user expect?
+	if (inet_pton(AF_INET6, $c)) {
+		$c = "$c/128";
+	} elsif (inet_pton(AF_INET, $c)) {
+		$c = "$c/32";
+	}
 
 	if ($c =~ m/^.*\/[0-9]+$/) {
 		verbose("Selecting from given CIDR '$c'...", 2);
