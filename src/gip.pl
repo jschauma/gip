@@ -47,7 +47,7 @@ use constant EXIT_SUCCESS => 0;
 use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
 use constant CC_CIDR_URL => "https://www.ipdeny.com/";
 
-use constant VERSION => 1.2;
+use constant VERSION => 1.3;
 
 ###
 ### Globals
@@ -125,6 +125,8 @@ my $RESERVED_CIDRS = {
 				},
 			"rfc4193" => {  # Unique-Local
 					"v6" => { "fc00::/7" => 1 },
+					# Note: a more specific CIDR will be
+					# generated further down.
 				},
 			"rfc4380" => {  # TEREDO
 					"v6" => { "2001::/32" => 1 },
@@ -237,6 +239,39 @@ sub fileUpdateNeeded($) {
 	}
 
 	return 0;
+}
+
+sub generateRFC4193Cidr() {
+	# Approximating RFC4193#3.2.2, but note that
+	# we're not trying to actually generate a a
+	# _unique_ IP, only a _valid_ IP, so we don't
+	# have to worry about using a EUI-64 identifier
+	# or anything like that.
+
+	verbose("Generating an RFC4193 CIDR...", 2);
+
+	my ($urandom, $bits);
+
+	open($urandom, '<', "/dev/urandom") or die "Unable to open /dev/urandom: $!\n";
+	binmode($urandom);
+	if (!read($urandom, $bits, 7)) {
+		error("Unable to read 7bytes from /dev/urandom: $!", EXIT_FAILURE);
+		# NOTREACHED
+	}
+	close($urandom);
+
+	my @fields = split(/\./, sprintf("%v02x", $bits));
+	my $cidr = "fd" . shift(@fields) . ":";
+	while (scalar(@fields)) {
+		$cidr .= shift(@fields);
+		if (scalar(@fields)%2 == 0) {
+			$cidr .= ":";
+		}
+	}
+	$cidr .= ":/64";
+
+	verbose("Using RFC4193 CIDR $cidr...", 3);
+	return $cidr;
 }
 
 sub getAWSIPRanges() {
@@ -446,6 +481,13 @@ sub parseReservedCIDRs() {
 	}
 
 	foreach my $k (@wanted) {
+
+		if ($k eq "rfc4193") {
+			my $cidr = generateRFC4193Cidr();
+			$CIDRS{"v6"}{$cidr} = 1;
+			next;
+		}
+
 		my $wanted = $RESERVED_CIDRS->{$k};
 		foreach my $v ( "v4", "v6" ) {
 			my %h = %{$wanted};
