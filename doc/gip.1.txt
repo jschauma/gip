@@ -134,7 +134,7 @@ FILES
 
      ip-ranges.json	  The list of IP ranges published by AWS.
 
-     <version>/<cc>.zone  The per country code CIDRs.
+     <version>/<cc>.cidr  The per country code CIDRs.
 
 EXIT STATUS
      The gip utility exits 0 on success, and >0 if an error occurs.
