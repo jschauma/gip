@@ -24,6 +24,7 @@ https://www.netmeister.org/gip/.
 and the following modules installed:
 
 * JSON
+* Locale::Country
 * Net::Netmask
 
 ## Installation
