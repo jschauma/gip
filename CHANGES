@@ -1,5 +1,7 @@
 Version 1.4 (2021-07-09)
 * switch from www.ipdeny.com to https://github.com/herrbischoff/country-ip-blocks
+* return better IPv6 link-local addresses
+* return longer IPv6 addresses
 
 Version 1.3 (2021-01-08)
 * generate a random RFC4193 address

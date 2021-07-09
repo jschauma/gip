@@ -51,7 +51,7 @@ use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
 # https://raw.githubusercontent.com/HackingGate/Country-IP-Blocks/master/generate.sh
 use constant CC_CIDR_URL => "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/";
 
-use constant VERSION => 1.3;
+use constant VERSION => 1.4;
 
 ###
 ### Globals
@@ -272,7 +272,7 @@ sub generateRFC4193Cidr() {
 	open($urandom, '<', "/dev/urandom") or die "Unable to open /dev/urandom: $!\n";
 	binmode($urandom);
 	if (!read($urandom, $bits, 7)) {
-		error("Unable to read 7bytes from /dev/urandom: $!", EXIT_FAILURE);
+		error("Unable to read 7 bytes from /dev/urandom: $!", EXIT_FAILURE);
 		# NOTREACHED
 	}
 	close($urandom);
@@ -666,30 +666,34 @@ sub selectIP($) {
 	}
 
 	# IPv6 blocks are too big to enumerate.
-	# If we get an IPv6 block, we grab one from the first /120.
-	# Likewise, for IPv4 we try to stay below a /16.
+	# If we get an IPv6 block, we grab one from a random /120.
+	# Likewise, for IPv4 we try to stay below a /12.
 	my $ipv6max = 120;
-	my $ipv4max = 16;
+	my $ipv4max = 12;
 
-	my $tooBig = 0;
-	my $max = $ipv6max;
 	if ($cidr =~ m/^(.*)\/(.*)$/) {
 		my $net = $1;
 		my $slash = $2;
 		if (($net =~ m/:/) && ($slash < $ipv6max)) {
-			$tooBig = 1;
-		} elsif ($slash < $ipv4max) {
-			$tooBig = 1;
-			$max = $ipv4max;
-		}
+			verbose("A /$slash is too big to iterate, gonna pick a random /$ipv6max instead...", 3);
+			my $n = Net::Netmask->new($cidr);
+			$cidr = $n->base();
 
-		if ($tooBig) {
-			verbose("A /$slash is too big to iterate, gonna use a /$max instead...", 3);
-			$cidr = "$net/$max";
+			my @hextets = split(/:/, $cidr);
+
+			# We fill all but two.
+			my $fill = 8 - scalar(@hextets) - 2;
+			for (my $i = 0; $i < $fill; $i++) {
+				$cidr .= sprintf("%x:", int(rand(2**16)));
+			}
+			$cidr .= "/$ipv6max";
+		} elsif ($slash < $ipv4max) {
+			verbose("A /$slash is too big to iterate, gonna use a /$ipv4max instead...", 3);
+			$cidr = "$net/$ipv4max";
 		}
 	}
 
-	verbose("Selecting an IP from the given $cidr...");
+	verbose("Selecting an IP from $cidr...");
 	my $block = createNetmask($cidr);
 	my @ips = $block->enumerate();
 	return $ips[rand(@ips)];
