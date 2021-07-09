@@ -245,6 +245,19 @@ sub fileUpdateNeeded($) {
 	return 0;
 }
 
+sub generateIPv6LinkLocal() {
+	verbose("Generating an IPv6 link-local address...", 2);
+
+	my $ip = sprintf("fe80::%02x%02x:%02xff:fe%02x:%02x%02x",
+				int(rand(255)),
+				int(rand(255)),
+				int(rand(255)),
+				int(rand(255)),
+				int(rand(255)),
+				int(rand(255)));
+	return $ip;
+}
+
 sub generateRFC4193Cidr() {
 	# Approximating RFC4193#3.2.2, but note that
 	# we're not trying to actually generate a a
@@ -647,6 +660,10 @@ sub selectCIDR($) {
 
 sub selectIP($) {
 	my ($cidr) = @_;
+
+	if ($cidr eq "fe80::/10") {
+		return generateIPv6LinkLocal();
+	}
 
 	# IPv6 blocks are too big to enumerate.
 	# If we get an IPv6 block, we grab one from the first /120.
