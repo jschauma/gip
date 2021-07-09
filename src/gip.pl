@@ -45,7 +45,11 @@ use constant EXIT_FAILURE => 1;
 use constant EXIT_SUCCESS => 0;
 
 use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
-use constant CC_CIDR_URL => "https://www.ipdeny.com/";
+
+# If this disappears, we can switch to fetching the CIDRs ourselves
+# using something similar to e.g.,
+# https://raw.githubusercontent.com/HackingGate/Country-IP-Blocks/master/generate.sh
+use constant CC_CIDR_URL => "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/";
 
 use constant VERSION => 1.3;
 
@@ -283,29 +287,19 @@ sub getAWSIPRanges() {
 
 sub getCountryNetblocks() {
 	my $country = $OPTS{'country'};
+	my $cc = $OPTS{'cc'};
+
 	verbose("Looking up netblocks allocated to $country...");
 
-	my $filev4 = $OPTS{'dir'} . "/v4/" . $OPTS{'cc'} . ".zone";
-	my $filev6 = $OPTS{'dir'} . "/v6/" . $OPTS{'cc'} . ".zone";
+	my $filev4 = $OPTS{'dir'} . "/v4/$cc.cidr";
+	my $filev6 = $OPTS{'dir'} . "/v6/$cc.cidr";
 
 	if (fileUpdateNeeded($filev4) || fileUpdateNeeded($filev6)) {
-		my @files = ( "all-zones", "ipv6-all-zones" );
-		foreach my $f (@files) {
-			verbose("Fetching '$f'...", 2);
-			$f .= ".tar.gz";
-			my $tar = $OPTS{'dir'} . "/$f";
-
-			my $url = CC_CIDR_URL . "ipv6/ipaddresses/blocks";
-			my $subdir = $OPTS{'dir'} . "/v6";
-			if ($f eq "all-zones.tar.gz") {
-				$subdir = $OPTS{'dir'} . "/v4";
-				$url = CC_CIDR_URL . "ipblocks/data/countries";
-			}
-
-			fetchFile("$url/$f", $tar);
-			my @cmd = ( "tar", "zxf", $tar, "-C", $subdir);
-			system(@cmd) == 0 or error("Unable to extract '$f': $!", EXIT_FAILURE);
-			unlink($tar) or error("Unable to remove '$tar': $!", EXIT_FAILURE);
+		foreach my $n ( "4", "6" ) {
+			verbose("Fetching IPv$n CIDRs for '$cc'...", 2);
+			my $url = CC_CIDR_URL . "ipv$n/$cc.cidr";
+			my $subdir = $OPTS{'dir'} . "/v$n";
+			fetchFile($url, $OPTS{'dir'} . "/v$n/$cc.cidr");
 		}
 	}
 
@@ -409,7 +403,7 @@ sub parseCCCIDRs() {
 			next;
 		}
 
-		my $file = $OPTS{'dir'} . "/$version/" . $OPTS{'cc'} . ".zone";
+		my $file = $OPTS{'dir'} . "/$version/" . $OPTS{'cc'} . ".cidr";
 
 		if (! -f $file) {
 			verbose("Skipping $file because it doesn't exist...");

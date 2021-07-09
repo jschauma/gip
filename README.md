@@ -132,7 +132,7 @@ GEOGRAPHICAL LOCATION
 	     https://ip-ranges.amazonaws.com/ip-ranges.json
 
      CIDRs   Address blocks by CIDR from:
-	     https://www.ipdeny.com/
+             https://github.com/herrbischoff/country-ip-blocks
 
      gip will look for these input files in the directory ~/.gip.  If no files
      are found, or the files found are older than 7 days, or if the -u flag is
