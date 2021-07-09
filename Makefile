@@ -1,6 +1,5 @@
 NAME=gip
 PREFIX?=/usr/local
-PERL!=which perl
 
 help:
 	@echo "The following targets are available:"
@@ -11,7 +10,7 @@ help:
 prep: src/${NAME}
 
 src/${NAME}: src/${NAME}.pl
-	sed -e "s|/usr/local/bin/perl|${PERL}|" $? >$@
+	sed -e "s|/usr/local/bin/perl|$$(which perl)|" $? >$@
 
 install: prep
 	mkdir -p ${PREFIX}/bin ${PREFIX}/share/man/man1
