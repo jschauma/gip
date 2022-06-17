@@ -1,3 +1,6 @@
+Version 1.5 (2022-06-16)
+* add support for reverse mappings via '-r'
+
 Version 1.4 (2021-07-09)
 * switch from www.ipdeny.com to https://github.com/herrbischoff/country-ip-blocks
 * return better IPv6 link-local addresses

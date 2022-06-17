@@ -19,7 +19,7 @@ use strict;
 use File::Basename;
 use Getopt::Long;
 use JSON;
-use Locale::Country qw(code2country country2code);
+use Locale::Country qw(all_country_codes code2country country2code);
 use Net::Netmask;
 use Socket qw(AF_INET AF_INET6 inet_pton);
 use URI::Escape;
@@ -51,7 +51,7 @@ use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
 # https://raw.githubusercontent.com/HackingGate/Country-IP-Blocks/master/generate.sh
 use constant CC_CIDR_URL => "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/";
 
-use constant VERSION => 1.4;
+use constant VERSION => 1.6;
 
 ###
 ### Globals
@@ -82,6 +82,10 @@ my $RESERVED_CIDRS = {
 			"multicast" => {
 					"v4" => { "224.0.0.0/4" => 1 },
 					"v6" => { "ff00::/8" => 1 },
+				},
+			# https://icann.org/namecollision
+			"namecollision" => {
+					"v4" => { "127.0.53.53/32" => 1 },
 				},
 			"unique-local" => {
 					"v4" => {
@@ -167,6 +171,10 @@ my $RESERVED_CIDRS = {
 
 # CIDRS = ( "v4" => ( "1.2.3.4/NM" => 1, ... ), "v6" => ( "1::2/NM" => 1 ) )
 my %CIDRS;
+
+# CIDR_DESC = ( "desc1" => ( "cidr1" => 1, "cidr2" => 1, ...), "desc2" => ( "cidr1" => 1, "cidr2" => 2, ...), ... )
+my %CIDR_DESC;
+
 my %OPTS = ( "update" => "default",
 		"v4"  => "yes",
 		"v6"  => "yes" );
@@ -176,6 +184,55 @@ my $RETVAL = 0;
 ###
 ### Subroutines
 ###
+
+sub addToCidrMap($$) {
+	my ($line, $descr) = @_;
+	my $wanted = $OPTS{'net'};
+
+	my $firstWanted = $OPTS{'first'};
+	my ($first, $net);
+	my $v4 = 0;
+	my $v6 = 0;
+
+	if ($line =~ m/:/) {
+		$v6 = 1;
+	} else {
+		$v4 = 1;
+	}
+
+	if (($v6 && ($wanted !~ m/:/)) ||
+		($v4 && ($wanted =~ m/[^0-9.\/]/))) {
+		# CIDR and wanted must both be v4 or both be v6
+		return 0;
+	}
+
+	$first = "";
+	if ($line =~ m/^([0-9]+)\./) {
+		$first = $1;
+		$net = 32;
+	} elsif ($line =~ m/^([0-9a-f]+):/i) {
+		$first = $1;
+		$net = 128;
+	}
+
+	if ($wanted =~ m/.*\/([0-9]+)/) {
+		$net = $1;
+	}
+
+	if (($v4 && ($net > 7)) || ($v6 && ($net > 15))) {
+		if ($first ne $firstWanted) {
+			return 0;
+		}
+	}
+
+	my $block= createNetmask($line);
+	if ($block->contains($wanted)) {
+		$CIDR_DESC{$descr}{$line} = 1;
+		return 1;
+	}
+
+	return 0;
+}
 
 sub createNetmask($) {
 	my ($cidr) = @_;
@@ -192,6 +249,25 @@ sub createNetmask($) {
 	return $block;
 }
 
+sub doReverseLookup() {
+
+	my @mappings;
+	# Try to get results quickly and check
+	# smallest maps first.
+	parseReservedCIDRs();
+	if (printCidrMappings("reserved") && !$OPTS{'all'}) {
+		return;
+	}
+
+	%CIDR_DESC = ();
+	getAWSIPRanges();
+	parseAWSData();
+	printCidrMappings("aws");
+
+	%CIDR_DESC = ();
+	parseAllCountryNetblocks();
+	printCidrMappings("cc");
+}
 
 sub error($;$) {
 	my ($msg, $err) = @_;
@@ -207,7 +283,7 @@ sub error($;$) {
 
 sub fetchFile($$) {
 	my ($url, $out) = @_;
-	verbose("Fetching '$url' into '$out'...", 2);
+	verbose("Fetching '$url' into '$out'...", 3);
 
 	# We call out to curl(1) because it turns out
 	# that the various ways to fetch https resources
@@ -215,9 +291,13 @@ sub fetchFile($$) {
 	# predictable with regards to the presence of
 	# a proper CA bundle and support for modern ciphers
 	# than curl(1).
-	my @cmd = ( "curl", "-s", $url, "-o", $out);
-	system(@cmd) == 0 or error ("Unable to execute '" .
-						join(" ", @cmd) . "': $!", EXIT_FAILURE);
+	my @cmd = ( "curl", "--fail", "-s", $url, "-o", $out);
+	system(@cmd);
+	my $rval = ($? & 127);
+	if (($rval != 0) && ($rval != 22)) {
+		error("Unable to execute '" .
+			join(" ", @cmd) . "': $!", EXIT_FAILURE);
+	}
 }
 
 sub fileUpdateNeeded($) {
@@ -228,7 +308,7 @@ sub fileUpdateNeeded($) {
 	my $age = 7 * 24 * 60 * 60;
 	my $cutoff = time() - $age;
 
-	if (!$mtime && ($OPTS{'update'} eq "no")) {
+	if (!$mtime && ($OPTS{'update'} eq "no") && !$OPTS{'reverse'}) {
 		error("No file '$file' found, but '-U' prohibits me from fetching that file.", EXIT_FAILURE);
 		# NOTREACHED
 	}
@@ -298,18 +378,17 @@ sub getAWSIPRanges() {
 	}
 }
 
-sub getCountryNetblocks() {
-	my $country = $OPTS{'country'};
-	my $cc = $OPTS{'cc'};
+sub getCountryNetblocks($$) {
+	my ($country, $cc) = @_;
 
-	verbose("Looking up netblocks allocated to $country...");
+	verbose("Looking up netblocks allocated to $country...", 3);
 
 	my $filev4 = $OPTS{'dir'} . "/v4/$cc.cidr";
 	my $filev6 = $OPTS{'dir'} . "/v6/$cc.cidr";
 
 	if (fileUpdateNeeded($filev4) || fileUpdateNeeded($filev6)) {
 		foreach my $n ( "4", "6" ) {
-			verbose("Fetching IPv$n CIDRs for '$cc'...", 2);
+			verbose("Fetching IPv$n CIDRs for '$cc'...", 4);
 			my $url = CC_CIDR_URL . "ipv$n/$cc.cidr";
 			my $subdir = $OPTS{'dir'} . "/v$n";
 			fetchFile($url, $OPTS{'dir'} . "/v$n/$cc.cidr");
@@ -317,6 +396,11 @@ sub getCountryNetblocks() {
 	}
 
 	if ((! -f $filev4) && (! -f $filev6)) {
+		# In reverse mode, we may not find country code files
+		# but then simply move on.
+		if ($OPTS{'reverse'}) {
+			return;
+		}
 		error("Unable to find CIDR blocks for $country (" . $OPTS{'cc'} .").", EXIT_FAILURE);
 	}
 }
@@ -334,12 +418,14 @@ sub init() {
 	$OPTS{'dir'} = "$home/.gip";
 
 	my $ok = GetOptions(
+			"all|a"		=> \$OPTS{'all'},
 			"ipv4|4"	=> sub { $OPTS{'v6'} = "no"; },
 			"ipv6|6"	=> sub { $OPTS{'v4'} = "no"; },
 			"no-update|U"	=> sub { $OPTS{'update'} = "no"; },
 			"cidr|c"	=> \$OPTS{'cidr'},
 			"dir|d=s"	=> \$OPTS{'dir'},
 			"help|h"	=> \$OPTS{'h'},
+			"reverse|r"	=> \$OPTS{'reverse'},
 			"update|u"	=> sub { $OPTS{'update'} = "yes"; },
 			"verbose|v+"	=> sub { $OPTS{'v'}++; },
 			"version|V"	=> \$OPTS{'V'},
@@ -363,6 +449,9 @@ sub init() {
 	}
 
 	$OPTS{'country'} = $ARGV[0];
+	if ($OPTS{'reverse'}) {
+		$OPTS{'reverse'} = $OPTS{'country'};
+	}
 
 	if ($OPTS{'dir'} =~ m/(.*)/) {
 		# mkdir is safe, so untaint
@@ -374,6 +463,17 @@ sub init() {
 		if (! -d $d) {
 			mkdir $d or die("Unable to create '$d': $!");
 			$OPTS{'update'} = "yes";
+		}
+	}
+}
+
+sub parseAllCountryNetblocks() {
+	verbose("Getting and parsing all country netblocks...");
+	foreach my $cc (all_country_codes()) {
+		verbose("Getting and parsing $cc netblocks...", 2);
+		getCountryNetblocks($cc, $cc);
+		if (parseCCCIDRs($cc) && !$OPTS{'all'}) {
+			return;
 		}
 	}
 }
@@ -398,6 +498,11 @@ sub parseAWSData() {
 		if ($prefix{'region'} =~ m/^$c/) {
 			$CIDRS{'v4'}{$prefix{'ip_prefix'}} = 1;
 		}
+		if ($OPTS{'reverse'}) {
+			if (addToCidrMap($prefix{'ip_prefix'}, $prefix{'region'}) && !$OPTS{'all'}) {
+				return;
+			}
+		}
 	}
 	foreach my $p (@{$json{'ipv6_prefixes'}}) {
 		my %prefix = %{$p};
@@ -405,10 +510,16 @@ sub parseAWSData() {
 		if ($prefix{'region'} =~ m/^$c/) {
 			$CIDRS{'v6'}{$prefix{'ipv6_prefix'}} = 1;
 		}
+		if ($OPTS{'reverse'}) {
+			if (addToCidrMap($prefix{'ipv6_prefix'}, $prefix{'region'}) && !$OPTS{'all'}) {
+				return;
+			}
+		}
 	}
 }
 
-sub parseCCCIDRs() {
+sub parseCCCIDRs($) {
+	my ($cc) = @_;
 
 	%CIDRS = ();
 	foreach my $version ( "v4", "v6" ) {
@@ -416,21 +527,29 @@ sub parseCCCIDRs() {
 			next;
 		}
 
-		my $file = $OPTS{'dir'} . "/$version/" . $OPTS{'cc'} . ".cidr";
+		my $file = $OPTS{'dir'} . "/$version/$cc.cidr";
 
 		if (! -f $file) {
-			verbose("Skipping $file because it doesn't exist...");
 			next;
 		}
 
-		verbose("Parsing $version CC CIDRs from $file...");
+		verbose("Parsing $version CC CIDRs from $file...", 3);
 		open(my $fh, "<", $file) or error("Unable to open $file: $!", EXIT_FAILURE);
 		foreach my $line (<$fh>) {
 			chomp($line);
-			$CIDRS{$version}{$line} = 1;
+			if ($line =~ m/^[0-9a-f.:\/]+$/i) {
+				$CIDRS{$version}{$line} = 1;
+				if ($OPTS{'reverse'}) {
+					if (addToCidrMap($line, $cc) && !$OPTS{'all'}) {
+						return 1;
+					}
+				}
+			}
 		}
 		close($fh);
 	}
+
+	return 0;
 }
 
 sub parseGivenCIDR() {
@@ -480,9 +599,24 @@ sub parseGivenCIDR() {
 }
 
 sub parseReservedCIDRs() {
-	my $reserved = $OPTS{'country'};
-
 	my @wanted = keys(%{$RESERVED_CIDRS});
+
+	if ($OPTS{'reverse'}) {
+		foreach my $k (@wanted) {
+			foreach my $v ( "v4", "v6" ) {
+				my %rc = %{$RESERVED_CIDRS};
+				my %h = %{$rc{$k}};
+				if ($h{$v}) {
+					foreach my $cidr (keys(%{$h{$v}})) {
+						addToCidrMap($cidr, $k);
+					}
+				}
+			}
+		}
+		return;
+	}
+
+	my $reserved = $OPTS{'country'};
 	if ($reserved ne "reserved") {
 		@wanted = ( $reserved );
 	}
@@ -534,7 +668,20 @@ sub prepCountry() {
 	if ($c =~ m/^.*\/[0-9]+$/) {
 		verbose("Selecting from given CIDR '$c'...", 2);
 		$OPTS{'net'} = $c;
+
+		# In order to cut down on reverse matching, we extract
+		# the first octet / group.
+		$OPTS{'first'} = "";
+		if ($c =~ m/^([0-9]+)\./) {
+			$OPTS{'first'} = $1;
+		} elsif ($c =~ m/^([0-9a-f]+):/i) {
+			$OPTS{'first'} = $1;
+		}
 		return;
+	} elsif ($OPTS{'reverse'}) {
+		error("'-r' requires an IP address or CIDR.", EXIT_FAILURE);
+		# NOTREACHED
+
 	}
 
 	if ($RESERVED_CIDRS->{$c} || ($c eq "reserved")) {
@@ -645,6 +792,31 @@ sub prepCountry() {
 	$OPTS{'cc'} = $ccode;
 }
 
+
+sub printCidrMappings($) {
+	my ($which) = @_;
+
+	my $prefix = "";
+	if ($which eq "aws") {
+		$prefix ="AWS ";
+	}
+
+	my @mappings = keys(%CIDR_DESC);
+	foreach my $mapping (keys(%CIDR_DESC)) {
+		my @cidrs = keys(%{$CIDR_DESC{$mapping}});
+		if ($which eq "cc") {
+			my $country = code2country($mapping);
+			if ($country) {
+				$prefix = "$country / ";
+			}
+		}
+		print "${prefix}${mapping} (" . join(", ", @cidrs) . ")\n";
+	}
+
+	return scalar(@mappings);
+}
+
+
 sub selectCIDR($) {
 	my ($version) = @_;
 
@@ -705,14 +877,16 @@ sub usage($) {
 	my $FH = $err ? \*STDERR : \*STDOUT;
 
 	print $FH <<EOH
-Usage: $PROGNAME [-46UVchuv] [-d dir] country
+Usage: $PROGNAME [-46UVachruv] [-d dir] country|reserved|cidr
 	-4      only return IPv4 results
 	-6      only return IPv6 results
+	-a      check all country allocations when using '-r'
 	-U      don't update local files
 	-V      print version number and exit
 	-c      return a CIDR subnet instead of an IP address
 	-d dir  store CIDR data in this directory (default: ~/.gip)
 	-h      print this help and exit
+	-r      reverse lookup
 	-u      update local files
 	-v      be verbose
 EOH
@@ -740,6 +914,11 @@ sub verbose($;$) {
 init();
 prepCountry();
 
+if ($OPTS{'reverse'}) {
+	doReverseLookup();
+	exit($RETVAL);
+}
+
 if ($OPTS{'reserved'}) {
 	parseReservedCIDRs();
 } elsif ($OPTS{'net'}) {
@@ -748,8 +927,8 @@ if ($OPTS{'reserved'}) {
 	getAWSIPRanges();
 	parseAWSData();
 } else {
-	getCountryNetblocks();
-	parseCCCIDRs();
+	getCountryNetblocks($OPTS{'country'}, $OPTS{'cc'});
+	parseCCCIDRs($OPTS{'cc'});
 }
 
 my $v4cidr = selectCIDR("v4");

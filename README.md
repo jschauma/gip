@@ -11,6 +11,10 @@ extension to determine whether the authoritative name
 server might return different results based on the
 client's geographical location.
 
+In addition, `gip(1)` also can reverse map an IP
+address to the RFC reservation, AWS region, and
+IANA/RIR allocation.
+
 Please see the [manual
 page](https://github.com/jschauma/gip/blob/master/doc/gip.1.txt)
 for details.
@@ -40,15 +44,15 @@ $ make PREFIX=~ install
 ---
 ```
 NAME
-     gip -- get an IP in a desired CIDR
+     gip - get an IP in a desired CIDR
 
 SYNOPSIS
-     gip [-46UVchuv] [-d dir] country|reserved|cidr
+     gip [-46UVachruv] [-d dir] country|reserved|cidr
 
 DESCRIPTION
-     The gip tool lets you grab an IP address or CIDR subnet that belongs to
-     the given CIDR or a geographical location as derived from external
-     sources of truth.
+     The gip tool lets you grab an IP address or CIDR subnet that belongs to the
+     given CIDR or a geographical location as derived from external sources of
+     truth.
 
      The selection is made at random from the given input.  This can be useful
      to test systems that behave differently based on e.g., the geographical
@@ -62,6 +66,10 @@ OPTIONS
 
      -6	      Only return IPv6 results.
 
+     -a	      When using -r, check all countries.  (By default, gip will only
+	      print the first matching country assignment, assuming that a
+	      netblock is not assigned to multiple countries.)
+
      -U	      Do not update local files.
 
      -V	      Print version number and exit.
@@ -73,15 +81,17 @@ OPTIONS
 
      -h	      Display help and exit.
 
+     -r	      Reverse lookup (IP or CIDR to RFC or CC).
+
      -u	      Update local files from their remote sources of truth.
 
      -v	      Be verbose.  Can be specified multiple times.
 
 DETAILS
      gip takes as argument a country, reservation description, or a CIDR and
-     will attempt to produce an IP address that matches those requirements.
-     By default, gip will attempt to find both an IPv4 and an IPv6 address,
-     but will only print one or the other if only that is available.
+     will attempt to produce an IP address that matches those requirements.  By
+     default, gip will attempt to find both an IPv4 and an IPv6 address, but
+     will only print one or the other if only that is available.
 
      A country can be specified as:
 
@@ -91,53 +101,68 @@ DETAILS
 
      CC		  An ISO-3166-1 Alpha-2 country code.  For example, 'de' for
 		  Germany.  For most countries, this will be their ccTLD; gip
-		  also accepts 'uk' for Great Britain, as well as 'eu' to let
-		  it pick a random country from the European Union, but gip
-		  will not accept IDN ccTLDs.
+		  also accepts 'uk' for Great Britain, as well as 'eu' to let it
+		  pick a random country from the European Union, but gip will
+		  not accept IDN ccTLDs.
 
-     country	  An English country name.  For example, 'Germany'.  For coun-
-		  tries with a name consisting of multiple words, make sure to
-		  quote this argument.
+     country	  An English country name.  For example, 'Germany'.  For
+		  countries with a name consisting of multiple words, make sure
+		  to quote this argument.
 
      A reservation description can be specified as
 
-     rfcXXXX	gip will provide a result from the given RFC reserved IP
-		space.	For example, specifying "RFC1918" may yield an address
-		in the 10.0.0.0/8 CIDR.
+     rfcXXXX	gip will provide a result from the given RFC reserved IP space.
+		For example, specifying "RFC1918" may yield an address in the
+		10.0.0.0/8 CIDR.
 
 		The RFCs gip is aware of are: RFC1112, RFC1122, RFC1918,
 		RFC2544, RFC2928, RFC3056, RFC3068, RFC3849, RFC4193, RFC4380,
 		RFC4843, RFC5180, RFC5737, RFC6052, RFC6333, RFC6598, RFC6666,
 		and RFC6890.
 
-     symbolic	gip accepts the following symbolic names for several of the
-		RFC reserved CIDRs: benchmarking, example, link-local, loop-
-		back, multicast, unique-local, unspecified.
+     symbolic	gip accepts the following symbolic names for several of the RFC
+		reserved CIDRs: benchmarking, example, link-local, loopback,
+		multicast, namecollision, unique-local, unspecified.
 
      reserved	Specifying the literal string "reserved" causes gip to pick an
 		address from any one of the CIDRs that are not suitable for
 		public communications.
 
-     Note: When selecting an IP address from a CIDR, gip will only expand
-     small CIDRs.  That is, if a given source CIDR ends up being larger than a
-     /120 vor IPv6 or a /16 for IPv4, then gip will grab an IP address from
-     the first /120 or /16 within the given CIDR.
+     Note: When selecting an IP address from a CIDR, gip will only expand small
+     CIDRs.  That is, if a given source CIDR ends up being larger than a /120
+     vor IPv6 or a /16 for IPv4, then gip will grab an IP address from the first
+     /120 or /16 within the given CIDR.
+
+REVERSE LOOKUPS
+     If the -r flag is specified, gip will attempt to do the reverse and tell
+     you what CC or reservation the given CIDR belongs to.
+
+     This can take a moment, as gip has to parse all CC and AWS CIDRs.
+     Likewise, gip will need to fetch the CC mappings following the same logic
+     as for forward lookups (see the -U flag), but of course here we are talking
+     about over 200 CIDR maps.
+
+     To cut down on the time spent here, gip will stop the lookup on the first
+     matching CIDR, operating under the assumption that neither AWS, nor IANA
+     assigns netblocks to multiple regions simultaneously.
+
+     If you want to ensure that all CIDRs are checked, pass the -a flag.
 
 GEOGRAPHICAL LOCATION
-     gip will attempt to determine an IP range for the given country argument
-     by retrieving sources of truth to map your input.	These sources of truth
+     gip will attempt to determine an IP range for the given country argument by
+     retrieving sources of truth to map your input.  These sources of truth
      include:
 
-     AWS     The IP ranges published by AWS at:
-	     https://ip-ranges.amazonaws.com/ip-ranges.json
+     AWS     The IP ranges published by AWS at: https://ip-
+	     ranges.amazonaws.com/ip-ranges.json
 
      CIDRs   Address blocks by CIDR from:
-             https://github.com/herrbischoff/country-ip-blocks
+	     https://github.com/herrbischoff/country-ip-blocks
 
      gip will look for these input files in the directory ~/.gip.  If no files
      are found, or the files found are older than 7 days, or if the -u flag is
-     specified, gip will attempt to fetch these files.	This can be disabled
-     by specifying the -U flag.
+     specified, gip will attempt to fetch these files.	This can be disabled by
+     specifying the -U flag.
 
 EXAMPLES
      The following examples illustrate common usage of this tool.
@@ -166,6 +191,10 @@ EXAMPLES
      To select a random subnet of the given 2001:db8::/32:
 
 	   gip -c 2001:db8::/32
+
+     To look up the location of the address 2406:dafc:2000::2916:d9e5:2aac:
+
+	   gip -r 2406:dafc:2000::2916:d9e5:2aac
 
 FILES
      gip keeps copies of the data it looked up in the directory ~/.gip.	 In

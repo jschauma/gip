@@ -42,6 +42,10 @@ sub runGip() {
 		push(@CMD, "-c");
 	}
 
+	if ($CGI->param('reverse') && (lc($CGI->param('reverse')) eq "yes")) {
+		push(@CMD, "-r");
+	}
+
 	if ($CGI->param('ip')) {
 		if ($CGI->param('ip') eq "v4") {
 			push(@CMD, "-4");
@@ -142,8 +146,16 @@ command-line tool, here's an HTML form for you:
   <FORM ACTION="index.cgi">
     <table border="0">
       <tr>
-        <td>Country name, country code, or AWS region to look up:</td>
+        <td>Country name, country code, AWS region, or IP/CIDR to look up:</td>
         <td><input type="text" name="location" width="30"></td>
+      </tr>
+      <tr>
+        <td>Reverse:</td>
+        <td><input type="radio" name="reverse" value="no" checked>No<br>
+	    <input type="radio" name="reverse" value="yes">Yes<br>
+      </tr>
+      <tr>
+        <td colspan="2">If <em>not</em> reverse:</td>
       </tr>
       <tr>
         <td>Output:</td>
@@ -187,6 +199,9 @@ we'll keep it simple.  Here are some examples:
 \$ curl "https://www.netmeister.org/gip/?location=link-local"
 169.254.223.92
 fe80::f9
+\$ curl "https://www.netmeister.org/gip/?location=127.0.53.53&reverse=yes"
+namecollision (127.0.53.53/32)
+loopback (127.0.0.0/8)
 \$ </pre></tt></blockquote>
   </p>
 EOD
