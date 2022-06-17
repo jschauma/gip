@@ -23,13 +23,13 @@ OPTIONS
 
      -6	      Only return IPv6 results.
 
-     -a	      When using -r, check all countries.  (By default, gip will only
-	      print the first matching country assignment, assuming that a
-	      netblock is not assigned to multiple countries.)
-
      -U	      Do not update local files.
 
      -V	      Print version number and exit.
+
+     -a	      When using -r, check all countries.  (By default, gip will only
+	      print the first matching country assignment, assuming that a
+	      netblock is not assigned to multiple countries.)
 
      -c	      Return a CIDR subnet instead of an IP address.
 
