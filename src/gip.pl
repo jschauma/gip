@@ -866,9 +866,9 @@ sub selectIP($) {
 
 	# IPv6 blocks are too big to enumerate.
 	# If we get an IPv6 block, we grab one from a random /120.
-	# Likewise, for IPv4 we try to stay below a /12.
+	# Likewise, for IPv4 we try to stay between a /24 and a /14
 	my $ipv6max = 120;
-	my $ipv4max = 12;
+	my $ipv4max = 14;
 
 	if ($cidr =~ m/^(.*)\/(.*)$/) {
 		my $net = $1;
@@ -887,8 +887,9 @@ sub selectIP($) {
 			}
 			$cidr .= "/$ipv6max";
 		} elsif ($slash < $ipv4max) {
-			verbose("A /$slash is too big to iterate, gonna use a /$ipv4max instead...", 3);
-			$cidr = "$net/$ipv4max";
+			my $mask = int(24 - rand(10));
+			verbose("A /$slash is too big to iterate, gonna use a /$mask instead...", 3);
+			$cidr = "$net/$mask";
 		}
 	}
 
