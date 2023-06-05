@@ -18,7 +18,7 @@ use 5.008;
 use strict;
 use File::Basename;
 use Getopt::Long;
-use JSON;
+use JSON::XS;
 use Locale::Country qw(all_country_codes code2country country2code);
 use Net::Netmask;
 use Socket qw(AF_INET AF_INET6 inet_pton);
@@ -150,7 +150,7 @@ my $RESERVED_CIDRS = {
 							"192.0.2.0/24" => 1,
 							"198.51.100.0/24" => 1,
 							"203.0.113.0/24" => 1,
-					       	},
+				     },
 				},
 			"rfc6052" => {  # IPv4-IPv6 Translation
 					"v6" => { "64:ff9b::/96" => 1 },
@@ -262,11 +262,15 @@ sub doReverseLookup() {
 	%CIDR_DESC = ();
 	getAWSIPRanges();
 	parseAWSData();
-	printCidrMappings("aws");
+	if (printCidrMappings("aws") && !$OPTS{'all'}) {
+		return;
+	}
 
 	%CIDR_DESC = ();
 	parseAllCountryNetblocks();
-	printCidrMappings("cc");
+	if (printCidrMappings("cc") && !$OPTS{'all'}) {
+		return;
+	}
 }
 
 sub error($;$) {
@@ -303,19 +307,18 @@ sub fetchFile($$) {
 sub fileUpdateNeeded($) {
 	my ($file) = @_;
 
-	my $mtime = (stat($file))[9];
+	if ($OPTS{'update'} eq "no") {
+		verbose("Skipping updating '$file' because '-U' was specified...");
+		return 0;
+	}
 
+	my $mtime = (stat($file))[9];
 	my $age = 7 * 24 * 60 * 60;
 	my $cutoff = time() - $age;
 
 	if (!$mtime && ($OPTS{'update'} eq "no") && !$OPTS{'reverse'}) {
 		error("No file '$file' found, but '-U' prohibits me from fetching that file.", EXIT_FAILURE);
 		# NOTREACHED
-	}
-
-	if ($OPTS{'update'} eq "no") {
-		verbose("Skipping updating '$file' because '-U' was specified...");
-		return 0;
 	}
 
 	if (!$mtime || ($mtime < $cutoff) || ($OPTS{'update'} eq "yes")) {
@@ -386,8 +389,20 @@ sub getCountryNetblocks($$) {
 	my $filev4 = $OPTS{'dir'} . "/v4/$cc.cidr";
 	my $filev6 = $OPTS{'dir'} . "/v6/$cc.cidr";
 
-	if (fileUpdateNeeded($filev4) || fileUpdateNeeded($filev6)) {
-		foreach my $n ( "4", "6" ) {
+	my @files = ( $filev4, $filev6 );
+	if ($OPTS{'reverse'}) {
+		@files = ( $filev4 );
+		if ($OPTS{'reverse'} =~ /:/) {
+			@files = ( $filev6 );
+		}
+	}
+
+	foreach my $f (@files) {
+		if (fileUpdateNeeded($f)) {
+			my $n = "4";
+			if ($f =~ m|/v6/|) {
+				$n = "6";
+			}
 			verbose("Fetching IPv$n CIDRs for '$cc'...", 4);
 			my $url = CC_CIDR_URL . "ipv$n/$cc.cidr";
 			my $subdir = $OPTS{'dir'} . "/v$n";
@@ -482,37 +497,40 @@ sub parseAWSData() {
 	my $file = $OPTS{'dir'} . "/ip-ranges.json";
 	verbose("Parsing AWS IP Ranges from $file...");
 
-	my $json = JSON->new->allow_nonref;
-
 	%CIDRS = ();
 	open(my $fh, "<", $file) or error("Unable to open $file: $!", EXIT_FAILURE);
 	local $/;
 	my $input = <$fh>;
 	close($fh);
 
-	my $rawJson = JSON->new->decode($input);
+	my $rawJson = JSON::XS->new->decode($input);
 	my %json = %{$rawJson};
-	foreach my $p (@{$json{'prefixes'}}) {
-		my %prefix = %{$p};
-		my $c = $OPTS{'country'};
-		if ($prefix{'region'} =~ m/^$c/) {
-			$CIDRS{'v4'}{$prefix{'ip_prefix'}} = 1;
-		}
-		if ($OPTS{'reverse'}) {
-			if (addToCidrMap($prefix{'ip_prefix'}, $prefix{'region'}) && !$OPTS{'all'}) {
-				return;
+	if (!$OPTS{'reverse'} || $OPTS{'reverse'} !~ m/:/) {
+		foreach my $p (@{$json{'prefixes'}}) {
+			my %prefix = %{$p};
+			my $c = $OPTS{'country'};
+			if ($prefix{'region'} =~ m/^$c/) {
+				$CIDRS{'v4'}{$prefix{'ip_prefix'}} = 1;
+			}
+			if ($OPTS{'reverse'}) {
+				if (addToCidrMap($prefix{'ip_prefix'}, $prefix{'region'}) && !$OPTS{'all'}) {
+					return;
+				}
 			}
 		}
 	}
-	foreach my $p (@{$json{'ipv6_prefixes'}}) {
-		my %prefix = %{$p};
-		my $c = $OPTS{'country'};
-		if ($prefix{'region'} =~ m/^$c/) {
-			$CIDRS{'v6'}{$prefix{'ipv6_prefix'}} = 1;
-		}
-		if ($OPTS{'reverse'}) {
-			if (addToCidrMap($prefix{'ipv6_prefix'}, $prefix{'region'}) && !$OPTS{'all'}) {
-				return;
+
+	if (!$OPTS{'reverse'} || $OPTS{'reverse'} =~ m/:/) {
+		foreach my $p (@{$json{'ipv6_prefixes'}}) {
+			my %prefix = %{$p};
+			my $c = $OPTS{'country'};
+			if ($prefix{'region'} =~ m/^$c/) {
+				$CIDRS{'v6'}{$prefix{'ipv6_prefix'}} = 1;
+			}
+			if ($OPTS{'reverse'}) {
+				if (addToCidrMap($prefix{'ipv6_prefix'}, $prefix{'region'}) && !$OPTS{'all'}) {
+					return;
+				}
 			}
 		}
 	}
@@ -522,7 +540,16 @@ sub parseCCCIDRs($) {
 	my ($cc) = @_;
 
 	%CIDRS = ();
-	foreach my $version ( "v4", "v6" ) {
+	my @versions = ( "v4", "v6" );
+	if ($OPTS{'reverse'}) {
+		@versions = ( "v4" );
+		if ($OPTS{'reverse'} =~ /:/) {
+			@versions = ( "v6" );
+		}
+	}
+
+
+	foreach my $version (@versions) {
 		if ($OPTS{$version} ne "yes") {
 			next;
 		}
@@ -558,7 +585,7 @@ sub parseGivenCIDR() {
 	my $block = createNetmask($cidr);
 
 	if ($block->protocol() eq "IPv6") {
-	       	if ($OPTS{"v6"} eq "no") {
+		if ($OPTS{"v6"} eq "no") {
 			error("You gave me an IPv6 CIDR but asked for IPv4 results.", EXIT_FAILURE);
 			# NOTREACHED
 		}
@@ -635,7 +662,7 @@ sub parseReservedCIDRs() {
 			if ($reserved ne "reserved" && !$h{$v} &&
 				# only warn when the missing version was explicitly requested
 				(($v eq "v4" && ($OPTS{"v6"} eq "no")) ||
-			 	($v eq "v6" && ($OPTS{"v4"} eq "no")))) {
+				($v eq "v6" && ($OPTS{"v4"} eq "no")))) {
 				error("No IP$v CIDRs found for $reserved.");
 				next;
 			}
