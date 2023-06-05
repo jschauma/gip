@@ -27,7 +27,7 @@ https://www.netmeister.org/gip/.
 `gip(1)` is old-school.  You'll need to have Perl
 and the following modules installed:
 
-* JSON
+* JSON::XS
 * Locale::Country
 * Net::Netmask
 
