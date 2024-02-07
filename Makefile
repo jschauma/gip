@@ -5,6 +5,7 @@ help:
 	@echo "The following targets are available:"
 	@echo "clean    remove temporary files"
 	@echo "install  install all files under ${PREFIX}"
+	@echo "man      generate a formatted ascii man page"
 	@echo "prep     update the perl path in the source script"
 	@echo "readme   generate the README after a manual page update"
 
@@ -24,7 +25,7 @@ clean:
 man: doc/${NAME}.1.txt
 
 doc/${NAME}.1.txt: doc/${NAME}.1
-	mandoc -c -O width=80 $? | col -b >$@
+	groff -Tascii -mandoc $? | col -b >$@
 
 readme: man
 	sed -n -e '/^NAME/!p;//q' README.md >.readme
