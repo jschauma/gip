@@ -1,6 +1,6 @@
 .\" Originally written by Jan Schaumann
 .\" <jschauma@netmeister.org> in April 2020.
-.Dd June 16, 2022
+.Dd February 06, 2024
 .Dt gip 1
 .Os
 .Sh NAME
@@ -10,12 +10,12 @@
 .Nm
 .Op Fl 46UVachruv
 .Op Fl d Ar dir
-.Ar country|reserved|cidr
+.Ar ASN|country|reserved|cidr
 .Sh DESCRIPTION
 The
 .Nm
 tool lets you grab an IP address or CIDR subnet that
-belongs to the given CIDR or a geographical location
+belongs to the given ASN, CIDR, or geographical location
 as derived from external sources of truth.
 .Pp
 The selection is made at random from the given input.
@@ -61,7 +61,8 @@ Can be specified multiple times.
 .El
 .Sh DETAILS
 .Nm
-takes as argument a
+takes as argument an
+.Ar ASN,
 .Ar country ,
 .Ar reservation description ,
 or a
@@ -74,7 +75,10 @@ will attempt to find both an IPv4 and an IPv6 address,
 but will only print one or the other if only that is
 available.
 .Pp
-A country can be specified as:
+An ASN can be specified either with or without the
+leading "AS".
+.Pp
+A "country" can be specified as:
 .Bl -tag -width aws_region_
 .It aws-region
 An AWS region.
@@ -165,7 +169,7 @@ If you want to ensure that all CIDRs are checked, pass
 the
 .Fl a
 flag.
-.Sh GEOGRAPHICAL LOCATION
+.Sh SOURCES
 .Nm
 will attempt to determine an IP range for the given
 country argument by retrieving sources of truth to map
@@ -173,6 +177,11 @@ your input.
 These sources of truth include:
 .Bl -tag -width cidrs_
 .nf
+.It ASN
+ASN prefixes as provided by RIPEstat as described at:
+.nh
+https://stat.ripe.net/docs/02.data-api/announced-prefixes.html
+.nl
 .It AWS
 The IP ranges published by AWS at:
 .nh
@@ -245,6 +254,8 @@ keeps copies of the data it looked up in the directory
 .Bl -tag -width _version___cc_cidr_
 .It ip-ranges.json
 The list of IP ranges published by AWS.
+.It as/<as>.json
+The per ASN data retrieved from RIPEstat.
 .It <version>/<cc>.cidr
 The per country code CIDRs.
 .El

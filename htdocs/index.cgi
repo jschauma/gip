@@ -14,11 +14,13 @@ use IPC::Open3;
 ### Globals
 ###
 
-my $GIP = "/usr/local/bin/gip";
-my $DATADIR= "/usr/local/share/gip";
-my @CMD = ( $GIP, "-U", "-d", $DATADIR );
+use constant GIP => "/usr/local/bin/gip";
+use constant DATADIR => "/usr/local/share/gip";
+my @CMD = ( GIP, "-U", "-d", DATADIR );
 
 $ENV{'PATH'} = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/pkg/bin";
+$ENV{'CURL_CA_BUNDLE'} = "/usr/pkg/etc/openssl/cert.pem";
+
 
 my $CGI = new CGI;
 
@@ -56,6 +58,12 @@ sub runGip() {
 
 	if ($name =~ m/^([a-z0-9:\/ .-]+)$/i) {
 		$name = $1;
+		if ($name =~ m/^(asn?)?([0-9]+)$/i) {
+			my $as = $2;
+			if ( ! -f DATADIR . "/as/${as}.json" ) {
+				push(@CMD, "-u");
+			}
+		}
 	} else {
 		print $CGI->header(
 			-status => '400 Bad Request',
@@ -145,9 +153,9 @@ command-line tool, here's an HTML form for you:
   </p>
   <FORM ACTION="index.cgi">
     <table border="0">
-      <tr>
-        <td>Country name, country code, AWS region, or IP/CIDR to look up:</td>
-        <td><input type="text" name="location" width="30"></td>
+      <tr valign="top">
+        <td>ASN, country name, country code<br>AWS region, or IP/CIDR to look up:</td>
+        <td valign="middle"><input type="text" name="location" width="30"></td>
       </tr>
       <tr>
         <td>Reverse:</td>
@@ -163,7 +171,7 @@ command-line tool, here's an HTML form for you:
 	    <input type="radio" name="output" value="cidr">CIDR subnet<br>
       </tr>
       <tr>
-        <td>Include results:</td>
+        <td valign="top">Include results:</td>
         <td><input type="radio" name="ip" value="both" checked>both IPv4 and IPv6<br>
 	    <input type="radio" name="ip" value="v4">only IPv4<br>
 	    <input type="radio" name="ip" value="v6">only IPv6<br>

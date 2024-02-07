@@ -45,13 +45,14 @@ use constant EXIT_FAILURE => 1;
 use constant EXIT_SUCCESS => 0;
 
 use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
+use constant RIPE_URL => "https://stat.ripe.net/data/announced-prefixes/data.json?resource=";
 
 # If this disappears, we can switch to fetching the CIDRs ourselves
 # using something similar to e.g.,
 # https://raw.githubusercontent.com/HackingGate/Country-IP-Blocks/master/generate.sh
 use constant CC_CIDR_URL => "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/";
 
-use constant VERSION => 1.6;
+use constant VERSION => 1.7;
 
 ###
 ### Globals
@@ -297,10 +298,16 @@ sub fetchFile($$) {
 	# than curl(1).
 	my @cmd = ( "curl", "--fail", "-s", $url, "-o", $out);
 	system(@cmd);
-	my $rval = ($? & 127);
-	if (($rval != 0) && ($rval != 22)) {
-		error("Unable to execute '" .
-			join(" ", @cmd) . "': $!", EXIT_FAILURE);
+	my $rval = ($? >> 8);
+
+	if ($rval != 0) {
+		if ($rval == 22) {
+			error("Unable to fetch '$url'.", EXIT_FAILURE);
+		} else {
+			error("Unable to execute curl '" .
+				join(" ", @cmd) . "': $! ($rval)", EXIT_FAILURE);
+		}
+		# NOTREACHED
 	}
 }
 
@@ -372,6 +379,13 @@ sub generateRFC4193Cidr() {
 
 	verbose("Using RFC4193 CIDR $cidr...", 3);
 	return $cidr;
+}
+
+sub getASN() {
+	my $file = $OPTS{'dir'} . "/as/" . $OPTS{'asn'} . ".json";
+	if (fileUpdateNeeded($file)) {
+		fetchFile(RIPE_URL . $OPTS{'asn'}, $file);
+	}
 }
 
 sub getAWSIPRanges() {
@@ -463,9 +477,9 @@ sub init() {
 		# NOTREACHED
 	}
 
-	$OPTS{'country'} = $ARGV[0];
+	$OPTS{'input'} = $ARGV[0];
 	if ($OPTS{'reverse'}) {
-		$OPTS{'reverse'} = $OPTS{'country'};
+		$OPTS{'reverse'} = $OPTS{'input'};
 	}
 
 	if ($OPTS{'dir'} =~ m/(.*)/) {
@@ -473,7 +487,7 @@ sub init() {
 		$OPTS{'dir'} = $1;
 	}
 
-	my @subdirs = ( $OPTS{'dir'}, $OPTS{'dir'} . "/v4", $OPTS{'dir'} . "/v6" );
+	my @subdirs = ( $OPTS{'dir'}, $OPTS{'dir'} . "/as", $OPTS{'dir'} . "/v4", $OPTS{'dir'} . "/v6" );
 	foreach my $d (@subdirs) {
 		if (! -d $d) {
 			mkdir $d or die("Unable to create '$d': $!");
@@ -493,6 +507,35 @@ sub parseAllCountryNetblocks() {
 	}
 }
 
+sub parseASN() {
+	my $file = $OPTS{'dir'} . "/as/" . $OPTS{'asn'} . ".json";
+	verbose("Parsing ASN data from $file...");
+
+	%CIDRS = ();
+	open(my $fh, "<", $file) or error("Unable to open $file: $!", EXIT_FAILURE);
+	local $/;
+	my $input = <$fh>;
+	close($fh);
+
+	my $rawJson = JSON::XS->new->decode($input);
+	my %json = %{$rawJson};
+
+	foreach my $p (@{$json{'data'}{'prefixes'}}) {
+		my %prefix = %{$p};
+		my $cidr = $prefix{'prefix'};
+		if ($cidr =~ m/:/) {
+			$CIDRS{'v6'}{$cidr} = 1;
+		} else {
+			$CIDRS{'v4'}{$cidr} = 1;
+		}
+	}
+
+	if (!scalar(%CIDRS)) {
+		error("No prefixes found in AS" . $OPTS{'asn'} . ".", EXIT_FAILURE);
+		# NOTREACHED
+	}
+}
+
 sub parseAWSData() {
 	my $file = $OPTS{'dir'} . "/ip-ranges.json";
 	verbose("Parsing AWS IP Ranges from $file...");
@@ -508,7 +551,7 @@ sub parseAWSData() {
 	if (!$OPTS{'reverse'} || $OPTS{'reverse'} !~ m/:/) {
 		foreach my $p (@{$json{'prefixes'}}) {
 			my %prefix = %{$p};
-			my $c = $OPTS{'country'};
+			my $c = $OPTS{'input'};
 			if ($prefix{'region'} =~ m/^$c/) {
 				$CIDRS{'v4'}{$prefix{'ip_prefix'}} = 1;
 			}
@@ -523,7 +566,7 @@ sub parseAWSData() {
 	if (!$OPTS{'reverse'} || $OPTS{'reverse'} =~ m/:/) {
 		foreach my $p (@{$json{'ipv6_prefixes'}}) {
 			my %prefix = %{$p};
-			my $c = $OPTS{'country'};
+			my $c = $OPTS{'input'};
 			if ($prefix{'region'} =~ m/^$c/) {
 				$CIDRS{'v6'}{$prefix{'ipv6_prefix'}} = 1;
 			}
@@ -643,7 +686,7 @@ sub parseReservedCIDRs() {
 		return;
 	}
 
-	my $reserved = $OPTS{'country'};
+	my $reserved = $OPTS{'input'};
 	if ($reserved ne "reserved") {
 		@wanted = ( $reserved );
 	}
@@ -680,9 +723,9 @@ sub parseReservedCIDRs() {
 }
 
 sub prepCountry() {
-	verbose("Checking given country input " . $OPTS{'country'} . "...");
+	verbose("Checking given input " . $OPTS{'input'} . "...");
 
-	my $c = lc($OPTS{'country'});
+	my $c = lc($OPTS{'input'});
 	my $cc = "";
 
 	# This isn't very useful, but ok.  What else did the user expect?
@@ -712,15 +755,22 @@ sub prepCountry() {
 	}
 
 	if ($RESERVED_CIDRS->{$c} || ($c eq "reserved")) {
-		$OPTS{'country'} = $c;
+		$OPTS{'input'} = $c;
 		$OPTS{'reserved'} = 1;
 		return;
 	}
 
 	if ($c =~ m/^[a-z]+-[a-z]+(-[0-9]+)?$/) {
 		verbose("Using AWS region '$c'...", 2);
-		$OPTS{'country'} = $c;
+		$OPTS{'input'} = $c;
 		$OPTS{'aws'} = 1;
+		return;
+	}
+
+	if ($c =~ m/^(asn?)?([0-9]+)$/) {
+		my $asn = $2;
+		verbose("Using ASN $asn...", 2);
+		$OPTS{'asn'} = $2;
 		return;
 	}
 
@@ -815,7 +865,7 @@ sub prepCountry() {
 	$country =~ s/\b(\w)/\U$1/g;
 
 	verbose("Using country '$country ($ccode)'...", 2);
-	$OPTS{'country'} = $country;
+	$OPTS{'input'} = $country;
 	$OPTS{'cc'} = $ccode;
 }
 
@@ -954,8 +1004,11 @@ if ($OPTS{'reserved'}) {
 } elsif ($OPTS{'aws'}) {
 	getAWSIPRanges();
 	parseAWSData();
+} elsif ($OPTS{'asn'}) {
+	getASN();
+	parseASN();
 } else {
-	getCountryNetblocks($OPTS{'country'}, $OPTS{'cc'});
+	getCountryNetblocks($OPTS{'input'}, $OPTS{'cc'});
 	parseCCCIDRs($OPTS{'cc'});
 }
 
