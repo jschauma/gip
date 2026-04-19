@@ -1,3 +1,6 @@
+Version 1.8 (2026-04-19)
+* update source of IP country code info to https://country-ip-blocks.hackinggate.com/
+
 Version 1.7 (2024-02-06)
 * add support for ASN lookups
 

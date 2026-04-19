@@ -47,12 +47,11 @@ use constant EXIT_SUCCESS => 0;
 use constant AWS_URL => "https://ip-ranges.amazonaws.com/ip-ranges.json";
 use constant RIPE_URL => "https://stat.ripe.net/data/announced-prefixes/data.json?resource=";
 
-# If this disappears, we can switch to fetching the CIDRs ourselves
-# using something similar to e.g.,
+# If the hosted files disappear, we can fetch them ourselves:
 # https://raw.githubusercontent.com/HackingGate/Country-IP-Blocks/master/generate.sh
-use constant CC_CIDR_URL => "https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/";
+use constant CC_CIDR_URL => "https://country-ip-blocks.hackinggate.com/";
 
-use constant VERSION => 1.7;
+use constant VERSION => 1.8;
 
 ###
 ### Globals
@@ -418,8 +417,7 @@ sub getCountryNetblocks($$) {
 				$n = "6";
 			}
 			verbose("Fetching IPv$n CIDRs for '$cc'...", 4);
-			my $url = CC_CIDR_URL . "ipv$n/$cc.cidr";
-			my $subdir = $OPTS{'dir'} . "/v$n";
+			my $url = CC_CIDR_URL . uc($cc) . "_IPv$n.txt";
 			fetchFile($url, $OPTS{'dir'} . "/v$n/$cc.cidr");
 		}
 	}
