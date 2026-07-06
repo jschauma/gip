@@ -1,3 +1,6 @@
+Version 1.9 (2026-07-06)
+* add RFC9637
+
 Version 1.8 (2026-04-19)
 * update source of IP country code info to https://country-ip-blocks.hackinggate.com/
 

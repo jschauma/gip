@@ -51,7 +51,7 @@ use constant RIPE_URL => "https://stat.ripe.net/data/announced-prefixes/data.jso
 # https://raw.githubusercontent.com/HackingGate/Country-IP-Blocks/master/generate.sh
 use constant CC_CIDR_URL => "https://country-ip-blocks.hackinggate.com/";
 
-use constant VERSION => 1.8;
+use constant VERSION => 1.9;
 
 ###
 ### Globals
@@ -69,7 +69,10 @@ my $RESERVED_CIDRS = {
 							"198.51.100.0/24" => 1,
 							"203.0.113.0/24" => 1,
 					       	},
-					"v6" => { "2001:db8::/32" => 1 },
+					"v6" => {
+							"2001:db8::/32" => 1,
+							"3fff::/20" => 1,
+						},
 				},
 			"link-local" => {
 					"v4" => { "169.254.0.0/16" => 1 },
@@ -166,6 +169,9 @@ my $RESERVED_CIDRS = {
 				     },
 			"rfc6890" => {  # IETF Protocol Assignments
 					"v4" => { "192.0.0.0/24" => 1 },
+				     },
+			"rfc9637" => {  # Documentation
+					"v6" => { "3fff::/20" => 1 },
 				     },
 		};
 
